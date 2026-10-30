@@ -59,6 +59,50 @@
   .info .l2 b { color: #ff6b8f; font-weight: 600; }
   .info[hidden] { display: none; }
 
+  /* Objectif d'abonnés, sous le texte d'accueil */
+  .goal {
+    position: absolute; left: 150px; width: 780px; top: 838px;
+    font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; color: #e9dcff;
+  }
+  .goal[hidden] { display: none; }
+  .goal .row { display: flex; justify-content: space-between; align-items: baseline; margin: 0 6px 10px; }
+  .goal .t { font-size: 24px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; color: #c9b3f5;
+             text-shadow: 0 0 12px rgba(168, 85, 255, .7); }
+  .goal .n { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums;
+             text-shadow: 0 0 14px rgba(168, 85, 255, .8), 0 2px 4px rgba(6, 2, 13, .95); }
+  .goal .n small { font-size: 22px; font-weight: 500; color: #a596c8; }
+  .goal .bar {
+    position: relative; height: 26px; border-radius: 13px; overflow: hidden;
+    background: rgba(14, 6, 32, .85);
+    box-shadow: 0 0 0 1.5px rgba(192, 123, 255, .5), 0 0 18px rgba(168, 85, 255, .35), inset 0 0 12px rgba(0, 0, 0, .8);
+  }
+  .goal .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    border-radius: 13px;
+    background: linear-gradient(90deg, #5b1fb8, #a855ff 55%, #ff2e8a);
+    box-shadow: 0 0 20px rgba(255, 46, 138, .55);
+    transition: width 1.2s cubic-bezier(.22, .61, .36, 1);
+  }
+  /* Brume qui coule à l'intérieur de la barre */
+  .goal .fill::after {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0) 0 40px, rgba(255, 255, 255, .16) 60px, rgba(255, 255, 255, 0) 90px);
+    background-size: 180px 100%;
+    animation: drift 3.5s linear infinite;
+  }
+  @keyframes drift { to { background-position: 180px 0; } }
+  .goal.pulse .bar { animation: pulse .9s ease-out; }
+  @keyframes pulse { 30% { box-shadow: 0 0 0 2px #ff6b8f, 0 0 34px rgba(255, 46, 138, .8), inset 0 0 12px rgba(0, 0, 0, .8); } }
+  .goal .who {
+    position: absolute; right: 6px; top: 100%; margin-top: 8px;
+    font-size: 22px; color: #ff9ec0; opacity: 0; transform: translateY(-6px);
+    text-shadow: 0 0 10px rgba(255, 46, 138, .7), 0 2px 3px rgba(6, 2, 13, .95);
+    white-space: nowrap; max-width: 760px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .goal .who.on { animation: who 3.6s ease-out forwards; }
+  @keyframes who { 12%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-4px); } }
+  .goal.done .t { color: #ff9ec0; }
+
   @media (prefers-reduced-motion: reduce) {
     .eyes.show { animation-duration: 3s; }
   }
@@ -73,6 +117,12 @@
   <div class="info" id="info">
     <div class="l1">Bienvenue dans le manoir 👻</div>
     <div class="l2" id="l2">Abonne-toi pour revenir hanter le live</div>
+  </div>
+
+  <div class="goal" id="goal">
+    <div class="row"><span class="t" id="goalT">Âmes capturées</span><span class="n" id="goalN">0 <small>/ 0</small></span></div>
+    <div class="bar"><div class="fill" id="goalFill"></div></div>
+    <div class="who" id="goalWho"></div>
   </div>
 
   <svg id="eyes" class="eyes" viewBox="0 0 360 140" aria-hidden="true">
@@ -124,6 +174,71 @@ else if (JEU === 'ow') {
   const b = document.createElement('b'); b.textContent = RANG; l2.append(b);
 } else if (JEU === 'lol') {
   l2.textContent = 'Le chat choisit mon champion';
+}
+
+/* ---------- Objectif d'abonnés : ?depart=456&cible=470&pas=10, ?objectif=0 pour le masquer, ?test=1 pour simuler ----------
+   Les nouveaux abonnés arrivent par le WebSocket local de TikFinity (ws://localhost:21213), qui doit être ouvert et connecté au live. */
+const goalEl = document.getElementById('goal');
+const goalN = document.getElementById('goalN');
+const goalFill = document.getElementById('goalFill');
+const goalWho = document.getElementById('goalWho');
+const goalT = document.getElementById('goalT');
+const DEPART = Math.round(num(P.get('depart'), 456, 0, 1e7));
+const PAS = Math.round(num(P.get('pas'), 10, 1, 1e5));
+const CIBLE0 = Math.round(num(P.get('cible'), DEPART + PAS, DEPART + 1, 1e7));
+let cible = CIBLE0;
+const KEY = 'brume-goal';
+let gagnes = 0;
+const vus = new Set();
+try { // garde le compte si la source est rechargée pendant le live (remis à zéro dès que ?depart change)
+  const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (s && s.depart === DEPART && s.cible0 === CIBLE0) { gagnes = s.gagnes | 0; cible = s.cible || cible; }
+} catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ depart: DEPART, cible0: CIBLE0, cible, gagnes })); } catch (e) {} };
+
+function renderGoal() {
+  const total = DEPART + gagnes;
+  goalN.textContent = `${total} `;
+  const sm = document.createElement('small'); sm.textContent = `/ ${cible}`; goalN.append(sm);
+  const base = cible === CIBLE0 ? DEPART : cible - PAS; // la barre part du palier précédent
+  goalFill.style.width = `${Math.min(100, Math.max(3, (total - base) / (cible - base) * 100))}%`;
+}
+
+function nouvelAbonne(pseudo) {
+  gagnes++;
+  goalWho.textContent = pseudo ? `+1 âme · ${pseudo}` : '+1 âme';
+  goalWho.classList.remove('on'); void goalWho.offsetWidth; goalWho.classList.add('on');
+  goalEl.classList.remove('pulse'); void goalEl.offsetWidth; goalEl.classList.add('pulse');
+  if (DEPART + gagnes >= cible) { // objectif atteint : on le fête, puis palier suivant
+    renderGoal();
+    goalEl.classList.add('done'); goalT.textContent = 'Objectif atteint 👻';
+    if (EYES_ON) setTimeout(haunt, 600);
+    setTimeout(() => { cible += PAS; goalEl.classList.remove('done'); goalT.textContent = 'Âmes capturées'; renderGoal(); save(); }, 6000);
+  }
+  renderGoal(); save();
+}
+
+if (P.get('objectif') === '0') goalEl.hidden = true;
+else {
+  renderGoal();
+  const connect = () => {
+    let ws;
+    try { ws = new WebSocket('ws://localhost:21213/'); } catch (e) { return setTimeout(connect, 5000); }
+    ws.onmessage = (m) => {
+      let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+      const ev = String(msg.event || '').toLowerCase();
+      const d = msg.data || {};
+      const isFollow = ev === 'follow' || (ev === 'social' && /follow/i.test(String(d.displayType || d.label || '')));
+      if (!isFollow) return;
+      const id = String(d.uniqueId || d.userId || '');
+      if (id && vus.has(id)) return; // un même compte ne compte qu'une fois par live
+      if (id) vus.add(id);
+      nouvelAbonne(String(d.nickname || d.uniqueId || '').slice(0, 40));
+    };
+    ws.onclose = () => setTimeout(connect, 5000); // TikFinity pas encore lancé : on réessaie en silence
+  };
+  connect();
+  if (P.get('test') === '1') setInterval(() => nouvelAbonne(`Spectre${Math.floor(rand(10, 99))}`), 4000);
 }
 
 // Fenêtres transparentes (en px réels) et zones où les yeux peuvent surgir (hors cam, jeu et bandeau texte)
