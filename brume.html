@@ -47,6 +47,18 @@
   .eyes.blink .lid { animation: blink .22s ease-in-out; }
   @keyframes blink { 50% { transform: scaleY(.06); } }
 
+  /* Texte d'accueil intégré, en haut du bandeau central (l'objectif TikTok se place en dessous) */
+  .info {
+    position: absolute; left: 0; right: 0; top: 706px;
+    text-align: center; color: #e9dcff;
+    font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    text-shadow: 0 0 18px rgba(168, 85, 255, .75), 0 2px 4px rgba(6, 2, 13, .95);
+  }
+  .info .l1 { font-size: 46px; font-weight: 700; letter-spacing: .01em; line-height: 1.15; }
+  .info .l2 { margin-top: 8px; font-size: 28px; font-weight: 500; color: #c9b3f5; letter-spacing: .04em; }
+  .info .l2 b { color: #ff6b8f; font-weight: 600; }
+  .info[hidden] { display: none; }
+
   @media (prefers-reduced-motion: reduce) {
     .eyes.show { animation-duration: 3s; }
   }
@@ -57,6 +69,11 @@
   <div class="win" style="left:20px; top:96px;  width:1040px; height:576px"></div>
   <div class="win" style="left:20px; top:960px; width:1040px; height:588px"></div>
   <canvas id="wisps" class="layer" width="270" height="480"></canvas>
+
+  <div class="info" id="info">
+    <div class="l1">Bienvenue dans le manoir 👻</div>
+    <div class="l2" id="l2">Abonne-toi pour revenir hanter le live</div>
+  </div>
 
   <svg id="eyes" class="eyes" viewBox="0 0 360 140" aria-hidden="true">
     <defs>
@@ -95,6 +112,19 @@ const DEMO = P.get('demo') === '1';
 const WAIT_MIN = DEMO ? 4 : num(P.get('min'), 20, 3, 600);
 const WAIT_MAX = Math.max(WAIT_MIN, DEMO ? 8 : num(P.get('max'), 90, 3, 900));
 const EYES_ON = P.get('eyes') !== '0';
+
+/* ---------- Texte selon le jeu : ?jeu=ow | lol, ?rang=…, ?texte=0 pour le masquer ---------- */
+const info = document.getElementById('info');
+const l2 = document.getElementById('l2');
+const RANG = (P.get('rang') || 'Émeraude 3').slice(0, 30);
+const JEU = (P.get('jeu') || '').toLowerCase();
+if (P.get('texte') === '0') info.hidden = true;
+else if (JEU === 'ow') {
+  l2.textContent = 'Overwatch · Tatsumi#21330 · ';
+  const b = document.createElement('b'); b.textContent = RANG; l2.append(b);
+} else if (JEU === 'lol') {
+  l2.textContent = 'Le chat choisit mon champion';
+}
 
 // Fenêtres transparentes (en px réels) et zones où les yeux peuvent surgir (hors cam, jeu et bandeau texte)
 const WINDOWS = [
