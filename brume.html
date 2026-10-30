@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Overlay TikTok — Brume</title>
+<!--
+  Overlay vertical animé 1080×1920 (fond transparent) pour TikTok LIVE Studio (source Lien) ou OBS (source Navigateur).
+  - Brume violette qui dérive, fenêtres cam / jeu transparentes (mêmes positions que ta disposition actuelle).
+  - Des yeux rouges surgissent au hasard dans la brume, clignent, puis se dissolvent.
+  Paramètres d'URL (facultatifs) :
+    ?min=20&max=90   délai aléatoire entre deux apparitions, en secondes
+    ?demo=1          apparitions toutes les 4 à 8 s pour tester
+    ?eyes=0          brume seule, sans les yeux
+-->
+<style>
+  :root {
+    --bg: #06020d;
+    --edge: rgba(192, 123, 255, .55);
+    --edge-glow: rgba(168, 85, 255, .45);
+  }
+  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: transparent; }
+  .layer { position: absolute; inset: 0; pointer-events: none; }
+  canvas.layer { width: 1080px; height: 1920px; }
+
+  /* Contours doux des fenêtres, sans aspect « interface » */
+  .win {
+    position: absolute; border-radius: 28px;
+    box-shadow: 0 0 0 2px var(--edge), 0 0 26px 2px var(--edge-glow), inset 0 0 40px rgba(110, 40, 200, .35);
+  }
+
+  /* Présence spectrale */
+  .eyes {
+    position: absolute; width: 360px; height: 140px; opacity: 0;
+    transform-origin: 50% 50%;
+    filter: blur(6px);
+    will-change: opacity, transform, filter;
+  }
+  .eyes.show { animation: haunt var(--life, 8s) ease-in-out forwards; }
+  @keyframes haunt {
+    0%   { opacity: 0;   filter: blur(10px); transform: translate(0, 18px) scale(var(--s, 1)); }
+    25%  { opacity: 1;   filter: blur(0);    transform: translate(0, 0) scale(var(--s, 1)); }
+    75%  { opacity: .95; filter: blur(0);    transform: translate(var(--dx, 10px), -6px) scale(var(--s, 1)); }
+    100% { opacity: 0;   filter: blur(12px); transform: translate(calc(var(--dx, 10px) * 2), -20px) scale(var(--s, 1)); }
+  }
+  /* Clignement : les paupières se ferment brièvement */
+  .eyes .lid { transform-origin: 50% 50%; }
+  .eyes.blink .lid { animation: blink .22s ease-in-out; }
+  @keyframes blink { 50% { transform: scaleY(.06); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .eyes.show { animation-duration: 3s; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="fog" class="layer" width="270" height="480"></canvas>
+  <div class="win" style="left:20px; top:96px;  width:1040px; height:576px"></div>
+  <div class="win" style="left:20px; top:960px; width:1040px; height:588px"></div>
+  <canvas id="wisps" class="layer" width="270" height="480"></canvas>
+
+  <svg id="eyes" class="eyes" viewBox="0 0 360 140" aria-hidden="true">
+    <defs>
+      <radialGradient id="iris" cx="50%" cy="55%" r="60%">
+        <stop offset="0"   stop-color="#ffd2a0"/>
+        <stop offset=".25" stop-color="#ff7a3c"/>
+        <stop offset=".7"  stop-color="#e8202c"/>
+        <stop offset="1"   stop-color="#6e0618"/>
+      </radialGradient>
+      <filter id="burn" x="-50%" y="-80%" width="200%" height="260%">
+        <feGaussianBlur stdDeviation="10" result="g1"/>
+        <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="g2"/>
+        <feMerge><feMergeNode in="g1"/><feMergeNode in="g2"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <!-- Œil gauche : amande inclinée vers le centre, regard menaçant -->
+    <g class="lid" filter="url(#burn)">
+      <path d="M18 42 C 52 22, 106 38, 140 82 C 104 104, 50 92, 18 42 Z" fill="url(#iris)"/>
+      <!-- Pupille fine, en pointe en haut et en bas -->
+      <path d="M115 61 Q 122.5 71 115 81 Q 107.5 71 115 61 Z" fill="#120006"/>
+    </g>
+    <!-- Œil droit, symétrique -->
+    <g class="lid" filter="url(#burn)">
+      <path d="M342 42 C 308 22, 254 38, 220 82 C 256 104, 310 92, 342 42 Z" fill="url(#iris)"/>
+      <path d="M245 61 Q 252.5 71 245 81 Q 237.5 71 245 61 Z" fill="#120006"/>
+    </g>
+  </svg>
+
+<script>
+'use strict';
+
+/* ---------- Réglages ---------- */
+const P = new URLSearchParams(location.search);
+const num = (v, d, a, b) => { const n = parseFloat(v); return Number.isFinite(n) ? Math.min(Math.max(n, a), b) : d; };
+const DEMO = P.get('demo') === '1';
+const WAIT_MIN = DEMO ? 4 : num(P.get('min'), 20, 3, 600);
+const WAIT_MAX = Math.max(WAIT_MIN, DEMO ? 8 : num(P.get('max'), 90, 3, 900));
+const EYES_ON = P.get('eyes') !== '0';
+
+// Fenêtres transparentes (en px réels) et zones où les yeux peuvent surgir (hors cam, jeu et bandeau texte)
+const WINDOWS = [
+  { x: 20, y: 96,  w: 1040, h: 576 },
+  { x: 20, y: 960, w: 1040, h: 588 },
+];
+const SPAWN = [
+  { x: 40, y: 1590, w: 1000, h: 290, weight: 5 }, // bas de l'écran
+  { x: 40, y: 4,    w: 1000, h: 84,  weight: 1, small: true }, // fine bande du haut
+];
+const SCALE = 4; // canvas de brume en 270×480, agrandi ×4 : flou naturel et coût minime
+
+/* ---------- Brume ---------- */
+const fog = document.getElementById('fog').getContext('2d');
+const wisps = document.getElementById('wisps').getContext('2d');
+const W = 270, H = 480;
+const rand = (a, b) => a + Math.random() * (b - a);
+
+// Nappes lentes (fond) et volutes plus vives qui débordent sur le bord des fenêtres
+const blobs = Array.from({ length: 26 }, () => ({
+  x: rand(0, W), y: rand(0, H), r: rand(40, 110),
+  vx: rand(-.05, .05), vy: rand(-.03, .02),
+  c: Math.random() < .14 ? [255, 46, 138] : Math.random() < .5 ? [120, 40, 210] : [70, 22, 140],
+  a: rand(.14, .34), ph: rand(0, 6.28),
+}));
+const curls = Array.from({ length: 14 }, () => ({
+  x: rand(0, W), y: rand(0, H), r: rand(14, 34),
+  vx: rand(-.12, .12), vy: rand(-.1, -.02), a: rand(.05, .12), ph: rand(0, 6.28),
+}));
+
+// Perce les fenêtres ; `soft` > 0 laisse un léger fondu sur le bord (rectangles concentriques semi-transparents)
+function holes(ctx, soft) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = '#000'; // couleur opaque obligatoire : c'est son alpha qui efface
+  const steps = Math.max(1, Math.round(soft));
+  for (let i = 0; i < steps; i++) {
+    const inset = (soft - i) * 1.5;
+    ctx.globalAlpha = i === steps - 1 ? 1 : .35;
+    for (const w of WINDOWS) {
+      ctx.beginPath();
+      ctx.roundRect(w.x / SCALE + inset, w.y / SCALE + inset, w.w / SCALE - 2 * inset, w.h / SCALE - 2 * inset, 7);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawFog(t) {
+  fog.globalCompositeOperation = 'source-over';
+  fog.filter = 'none';
+  fog.fillStyle = '#06020d';
+  fog.fillRect(0, 0, W, H);
+  fog.globalCompositeOperation = 'lighter';
+  for (const b of blobs) {
+    b.x += b.vx; b.y += b.vy;
+    if (b.x < -b.r) b.x = W + b.r; if (b.x > W + b.r) b.x = -b.r;
+    if (b.y < -b.r) b.y = H + b.r; if (b.y > H + b.r) b.y = -b.r;
+    const a = b.a * (.75 + .25 * Math.sin(t / 3000 + b.ph));
+    const g = fog.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+    g.addColorStop(0, `rgba(${b.c},${a})`);
+    g.addColorStop(1, `rgba(${b.c},0)`);
+    fog.fillStyle = g;
+    fog.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+  }
+  holes(fog, 0); // bords nets : la cam et le jeu restent lisibles
+}
+
+function drawWisps(t) {
+  wisps.clearRect(0, 0, W, H);
+  wisps.globalCompositeOperation = 'lighter';
+  for (const c of curls) {
+    c.x += c.vx + Math.sin(t / 2600 + c.ph) * .08;
+    c.y += c.vy;
+    if (c.y < -c.r) { c.y = H + c.r; c.x = rand(0, W); }
+    if (c.x < -c.r) c.x = W + c.r; if (c.x > W + c.r) c.x = -c.r;
+    const g = wisps.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r);
+    g.addColorStop(0, `rgba(200,150,255,${c.a})`);
+    g.addColorStop(1, 'rgba(200,150,255,0)');
+    wisps.fillStyle = g;
+    wisps.fillRect(c.x - c.r, c.y - c.r, c.r * 2, c.r * 2);
+  }
+  // Les volutes ne recouvrent que légèrement le bord des fenêtres (effet « fumée qui s'échappe »)
+  holes(wisps, 4);
+}
+
+let last = 0;
+function frame(t) {
+  if (t - last > 33) { drawFog(t); drawWisps(t); last = t; } // ~30 i/s, suffisant pour une brume lente
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- Présence spectrale ---------- */
+const eyes = document.getElementById('eyes');
+
+function pickZone() {
+  const total = SPAWN.reduce((s, z) => s + z.weight, 0);
+  let r = Math.random() * total;
+  for (const z of SPAWN) { if ((r -= z.weight) <= 0) return z; }
+  return SPAWN[0];
+}
+
+function haunt() {
+  const z = pickZone();
+  const s = z.small ? rand(.45, .55) : rand(1.1, 1.6);
+  const w = 360 * s, h = 140 * s;
+  const x = rand(z.x, Math.max(z.x, z.x + z.w - w));
+  const y = z.small ? z.y + (z.h - h) / 2 : rand(z.y, Math.max(z.y, z.y + z.h - h));
+  const life = rand(6, 10);
+
+  eyes.style.left = `${x - (360 - w) / 2}px`;
+  eyes.style.top = `${y - (140 - h) / 2}px`;
+  eyes.style.setProperty('--s', s.toFixed(2));
+  eyes.style.setProperty('--dx', `${rand(-14, 14).toFixed(0)}px`);
+  eyes.style.setProperty('--life', `${life.toFixed(1)}s`);
+  eyes.classList.remove('show');
+  void eyes.offsetWidth; // relance l'animation
+  eyes.classList.add('show');
+
+  // Un ou deux clignements pendant que les yeux sont pleinement visibles
+  const blinks = Math.random() < .5 ? 1 : 2;
+  for (let i = 0; i < blinks; i++) {
+    setTimeout(() => {
+      eyes.classList.remove('blink'); void eyes.offsetWidth; eyes.classList.add('blink');
+    }, (life * rand(.3, .7)) * 1000);
+  }
+  setTimeout(schedule, life * 1000);
+}
+
+function schedule() {
+  eyes.classList.remove('show', 'blink');
+  setTimeout(haunt, rand(WAIT_MIN, WAIT_MAX) * 1000);
+}
+
+if (EYES_ON) setTimeout(haunt, rand(5, 15) * 1000 * (DEMO ? .2 : 1));
+</script>
+</body>
+</html>
