@@ -8,7 +8,7 @@
   - Brume violette qui dérive, fenêtres cam / jeu transparentes (mêmes positions que ta disposition actuelle).
   - Des yeux rouges surgissent au hasard dans la brume, clignent, puis se dissolvent.
   Paramètres d'URL (facultatifs) :
-    ?min=20&max=90   délai aléatoire entre deux apparitions, en secondes
+    ?min=12&max=45   délai aléatoire entre deux apparitions, en secondes
     ?demo=1          apparitions toutes les 4 à 8 s pour tester
     ?eyes=0          brume seule, sans les yeux
 -->
@@ -169,8 +169,8 @@ addEventListener('resize', fit); fit();
 const P = new URLSearchParams(location.search);
 const num = (v, d, a, b) => { const n = parseFloat(v); return Number.isFinite(n) ? Math.min(Math.max(n, a), b) : d; };
 const DEMO = P.get('demo') === '1';
-const WAIT_MIN = DEMO ? 4 : num(P.get('min'), 20, 3, 600);
-const WAIT_MAX = Math.max(WAIT_MIN, DEMO ? 8 : num(P.get('max'), 90, 3, 900));
+const WAIT_MIN = DEMO ? 4 : num(P.get('min'), 12, 3, 600);
+const WAIT_MAX = Math.max(WAIT_MIN, DEMO ? 8 : num(P.get('max'), 45, 3, 900));
 const EYES_ON = P.get('eyes') !== '0';
 
 /* ---------- Texte selon le jeu : ?jeu=ow | lol, ?rang=…, ?texte=0 pour le masquer ---------- */
@@ -271,13 +271,13 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // Nappes lentes (fond) et volutes plus vives qui débordent sur le bord des fenêtres
 const blobs = Array.from({ length: 26 }, () => ({
   x: rand(0, W), y: rand(0, H), r: rand(40, 110),
-  vx: rand(-.05, .05), vy: rand(-.03, .02),
+  vx: rand(-.22, .22), vy: rand(-.14, .06), sw: rand(.12, .3),
   c: Math.random() < .14 ? [255, 46, 138] : Math.random() < .5 ? [120, 40, 210] : [70, 22, 140],
-  a: rand(.14, .34), ph: rand(0, 6.28),
+  a: rand(.16, .38), ph: rand(0, 6.28), sp: rand(900, 1800),
 }));
-const curls = Array.from({ length: 14 }, () => ({
-  x: rand(0, W), y: rand(0, H), r: rand(14, 34),
-  vx: rand(-.12, .12), vy: rand(-.1, -.02), a: rand(.05, .12), ph: rand(0, 6.28),
+const curls = Array.from({ length: 24 }, () => ({
+  x: rand(0, W), y: rand(0, H), r: rand(14, 38),
+  vx: rand(-.15, .15), vy: rand(-.5, -.18), a: rand(.09, .2), ph: rand(0, 6.28),
 }));
 
 // Perce les fenêtres ; `soft` > 0 laisse un léger fondu sur le bord (rectangles concentriques semi-transparents)
@@ -305,10 +305,10 @@ function drawFog(t) {
   fog.fillRect(0, 0, W, H);
   fog.globalCompositeOperation = 'lighter';
   for (const b of blobs) {
-    b.x += b.vx; b.y += b.vy;
+    b.x += b.vx + Math.sin(t / 2200 + b.ph) * b.sw; b.y += b.vy + Math.cos(t / 2900 + b.ph) * b.sw * .6;
     if (b.x < -b.r) b.x = W + b.r; if (b.x > W + b.r) b.x = -b.r;
     if (b.y < -b.r) b.y = H + b.r; if (b.y > H + b.r) b.y = -b.r;
-    const a = b.a * (.75 + .25 * Math.sin(t / 3000 + b.ph));
+    const a = b.a * (.6 + .4 * Math.sin(t / b.sp + b.ph)); // respiration plus marquée
     const g = fog.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
     g.addColorStop(0, `rgba(${b.c},${a})`);
     g.addColorStop(1, `rgba(${b.c},0)`);
@@ -322,12 +322,12 @@ function drawWisps(t) {
   wisps.clearRect(0, 0, W, H);
   wisps.globalCompositeOperation = 'lighter';
   for (const c of curls) {
-    c.x += c.vx + Math.sin(t / 2600 + c.ph) * .08;
+    c.x += c.vx + Math.sin(t / 1300 + c.ph) * .3; // volutes qui montent en ondulant
     c.y += c.vy;
     if (c.y < -c.r) { c.y = H + c.r; c.x = rand(0, W); }
     if (c.x < -c.r) c.x = W + c.r; if (c.x > W + c.r) c.x = -c.r;
     const g = wisps.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r);
-    g.addColorStop(0, `rgba(200,150,255,${c.a})`);
+    g.addColorStop(0, `rgba(200,150,255,${c.a * (.7 + .3 * Math.sin(t / 700 + c.ph))})`);
     g.addColorStop(1, 'rgba(200,150,255,0)');
     wisps.fillStyle = g;
     wisps.fillRect(c.x - c.r, c.y - c.r, c.r * 2, c.r * 2);
