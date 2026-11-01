@@ -234,9 +234,11 @@ function nouvelAbonne(pseudo) {
 if (P.get('objectif') === '0') goalEl.hidden = true;
 else {
   renderGoal();
+  let retry = 3000;
   const connect = () => {
     let ws;
-    try { ws = new WebSocket('ws://localhost:21213/'); } catch (e) { return setTimeout(connect, 5000); }
+    try { ws = new WebSocket('ws://localhost:21213/'); } catch (e) { return setTimeout(connect, retry); }
+    ws.onopen = () => { retry = 3000; };
     ws.onmessage = (m) => {
       let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
       const ev = String(msg.event || '').toLowerCase();
@@ -248,7 +250,7 @@ else {
       if (id) vus.add(id);
       nouvelAbonne(String(d.nickname || d.uniqueId || '').slice(0, 40));
     };
-    ws.onclose = () => setTimeout(connect, 5000); // TikFinity pas encore lancé : on réessaie en silence
+    ws.onclose = () => { setTimeout(connect, retry); retry = Math.min(retry * 1.5, 30000); }; // TikFinity absent : on réessaie de plus en plus rarement
   };
   connect();
   if (P.get('test') === '1') setInterval(() => nouvelAbonne(`Spectre${Math.floor(rand(10, 99))}`), 4000);
@@ -346,14 +348,17 @@ function drawWisps(t, dt) {
 }
 
 let last = 0;
-function frame(t) {
-  // Dessin à chaque image, vitesse calée sur le temps réel (dt = 1 pour 1/30 s). Après un gel, on reprend sans saut.
+function step(t) {
+  // Vitesse calée sur le temps réel (dt = 1 pour 1/30 s). Après un gel, on reprend sans saut.
   const dt = last ? Math.min((t - last) / (1000 / 30), 3) : 1;
   last = t;
   drawFog(t, dt); drawWisps(t, dt);
-  requestAnimationFrame(frame);
 }
+function frame() { step(performance.now()); requestAnimationFrame(frame); }
 requestAnimationFrame(frame);
+// Secours : si le logiciel de live met la page en veille (requestAnimationFrame suspendu
+// quand la fenêtre est cachée par le jeu), un minuteur prend le relais pour que la brume continue.
+setInterval(() => { if (performance.now() - last > 120) step(performance.now()); }, 40);
 
 /* ---------- Présence spectrale ---------- */
 const eyes = document.getElementById('eyes');
