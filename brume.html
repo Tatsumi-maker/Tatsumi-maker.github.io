@@ -59,6 +59,8 @@
   .info .l2 { margin-top: 8px; font-size: 28px; font-weight: 500; color: #c9b3f5; letter-spacing: .04em; }
   .info .l2 b { color: #ff6b8f; font-weight: 600; }
   .info[hidden] { display: none; }
+  .info { transition: opacity .9s ease, filter .9s ease; }
+  .info.fade { opacity: 0; filter: blur(8px); }
 
   /* Objectif d'abonnés, sous le texte d'accueil */
   .goal {
@@ -173,20 +175,41 @@ const WAIT_MIN = DEMO ? 4 : num(P.get('min'), HORREUR ? 6 : 12, 3, 600);
 const WAIT_MAX = Math.max(WAIT_MIN, DEMO ? 8 : num(P.get('max'), HORREUR ? 20 : 45, 3, 900));
 const EYES_ON = P.get('eyes') !== '0';
 
-/* ---------- Texte selon le jeu : ?jeu=ow | lol | outlast, ?rang=…, ?texte=0 pour le masquer ---------- */
+/* ---------- Texte selon le jeu ----------
+   Par défaut, le jeu est détecté automatiquement par le petit programme du PC (http://localhost:21214/jeu).
+   ?jeu=ow | lol | outlast force un jeu, ?rang=… (Overwatch) et ?ranglol=… (LoL) changent le rang affiché, ?texte=0 masque le texte. */
 const info = document.getElementById('info');
+const l1 = document.getElementById('l1');
 const l2 = document.getElementById('l2');
 const RANG = (P.get('rang') || 'Émeraude 3').slice(0, 30);
+const RANG_LOL = (P.get('ranglol') || 'Émeraude').slice(0, 30);
+const ACCUEIL = 'Bienvenue dans le manoir 👻';
+function ligne(debut, rang) {
+  l2.textContent = debut;
+  if (rang) { const b = document.createElement('b'); b.textContent = rang; l2.append(b); }
+}
+const TEXTES = {
+  '':      () => { l1.textContent = ACCUEIL; ligne('Abonne-toi pour revenir hanter le live'); },
+  ow:      () => { l1.textContent = ACCUEIL; ligne('Overwatch · Tatsumi#21330 · ', RANG); },
+  lol:     () => { l1.textContent = ACCUEIL; ligne('League of Legends · KC Tatsumi#ARISE · ', RANG_LOL); },
+  outlast: () => { l1.textContent = "Bienvenue à l'asile 🎃"; ligne('Outlast · Nuit d\'Halloween · Je survis… ou pas'); },
+};
+let jeuActuel = null;
+function appliquerJeu(j, fondu) {
+  j = j in TEXTES ? j : '';
+  if (j === jeuActuel) return;
+  jeuActuel = j;
+  if (!fondu) return TEXTES[j]();
+  info.classList.add('fade'); // le texte se dissout dans la brume, puis le nouveau apparaît
+  setTimeout(() => { TEXTES[j](); info.classList.remove('fade'); }, 900);
+}
 const JEU = (P.get('jeu') || '').toLowerCase();
 if (P.get('texte') === '0') info.hidden = true;
-else if (JEU === 'ow') {
-  l2.textContent = 'Overwatch · Tatsumi#21330 · ';
-  const b = document.createElement('b'); b.textContent = RANG; l2.append(b);
-} else if (JEU === 'lol') {
-  l2.textContent = 'Le chat choisit mon champion';
-} else if (JEU === 'outlast') {
-  document.getElementById('l1').textContent = "Bienvenue à l'asile 🎃";
-  l2.textContent = 'Outlast · Nuit d\'Halloween · Je survis… ou pas';
+appliquerJeu(JEU, false);
+if (!JEU) { // détection automatique ; si le programme du PC ne répond pas, on garde le texte d'accueil
+  const demander = () => fetch('http://localhost:21214/jeu', { cache: 'no-store' })
+    .then((r) => r.json()).then((d) => appliquerJeu(String(d.jeu || ''), true)).catch(() => {});
+  demander(); setInterval(demander, 3000);
 }
 
 /* ---------- Objectif d'abonnés : ?depart=456&cible=470&pas=10, ?objectif=0 pour le masquer, ?test=1 pour simuler ----------
