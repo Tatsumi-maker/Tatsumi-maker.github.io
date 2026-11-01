@@ -22,7 +22,9 @@
   /* Maquette fixe en 1080×1920, réduite par le script pour remplir la fenêtre (ex. résolution 720×1280 dans TikTok) */
   #stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; }
   .layer { position: absolute; inset: 0; pointer-events: none; }
-  canvas.layer { width: 1080px; height: 1920px; }
+  canvas.layer { width: 1080px; height: 1920px; will-change: transform; }
+  /* Chaque élément fixe a son propre calque : la brume qui bouge dessous ne force plus à redessiner ombres et lueurs */
+  .win, .info, .goal { will-change: transform; }
 
   /* Contours doux des fenêtres, sans aspect « interface » */
   .win {
@@ -87,13 +89,15 @@
     transition: width 1.2s cubic-bezier(.22, .61, .36, 1);
   }
   /* Brume qui coule à l'intérieur de la barre */
+  .goal .fill { overflow: hidden; }
   .goal .fill::after {
-    content: ""; position: absolute; inset: 0;
+    content: ""; position: absolute; top: 0; bottom: 0; left: -180px; width: calc(100% + 180px);
     background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0) 0 40px, rgba(255, 255, 255, .16) 60px, rgba(255, 255, 255, 0) 90px);
     background-size: 180px 100%;
+    will-change: transform;
     animation: drift 3.5s linear infinite;
   }
-  @keyframes drift { to { background-position: 180px 0; } }
+  @keyframes drift { to { transform: translateX(180px); } }
   .goal.pulse .bar { animation: pulse .9s ease-out; }
   @keyframes pulse { 30% { box-shadow: 0 0 0 2px #ff6b8f, 0 0 34px rgba(255, 46, 138, .8), inset 0 0 12px rgba(0, 0, 0, .8); } }
   .goal .who {
@@ -113,10 +117,9 @@
 </head>
 <body>
 <div id="stage">
-  <canvas id="fog" class="layer" width="270" height="480"></canvas>
+  <canvas id="fog" class="layer" width="180" height="320"></canvas>
   <div class="win" style="left:20px; top:96px;  width:1040px; height:576px"></div>
-  <div class="win" style="left:20px; top:960px; width:1040px; height:588px"></div>
-  <canvas id="wisps" class="layer" width="270" height="480"></canvas>
+  <div class="win" id="winJeu" style="left:20px; top:960px; width:1040px; height:612px"></div>
 
   <div class="info" id="info">
     <div class="l1" id="l1">Bienvenue dans le manoir 👻</div>
@@ -282,40 +285,42 @@ else {
 // Fenêtres transparentes (en px réels) et zones où les yeux peuvent surgir (hors cam, jeu et bandeau texte)
 const WINDOWS = [
   { x: 20, y: 96,  w: 1040, h: 576 },
-  { x: 20, y: 960, w: 1040, h: 588 },
+  { x: 20, y: 960, w: 1040, h: Math.round(num(P.get('hjeu'), 612, 500, 760)) }, // ?hjeu=… pour ajuster la hauteur de la fenêtre du jeu
 ];
 const SPAWN = [
-  { x: 40, y: 1590, w: 1000, h: 290, weight: 5 }, // bas de l'écran
+  { x: 40, y: 1600, w: 1000, h: 280, weight: 5 }, // bas de l'écran
   { x: 40, y: 4,    w: 1000, h: 84,  weight: 1, small: true }, // fine bande du haut
 ];
-const SCALE = 4; // canvas de brume en 270×480, agrandi ×4 : flou naturel et coût minime
+document.getElementById('winJeu').style.height = WINDOWS[1].h + 'px';
+const SCALE = 6; // canvas de brume en 180×320, agrandi ×6 : flou naturel et coût minime
 
 /* ---------- Brume ---------- */
 const fog = document.getElementById('fog').getContext('2d');
-const wisps = document.getElementById('wisps').getContext('2d');
-const W = 270, H = 480;
+const wisps = fog; // volutes dessinées sur le même canvas que la brume : un seul calque à afficher
+const W = 180, H = 320;
+const K = 2 / 3; // tailles et vitesses ramenées à la nouvelle résolution (ancienne base 270×480)
 const rand = (a, b) => a + Math.random() * (b - a);
 
 // Nappes lentes (fond) et volutes plus vives qui débordent sur le bord des fenêtres
 const blobs = Array.from({ length: 26 }, () => ({
-  x: rand(0, W), y: rand(0, H), r: rand(40, 110),
-  vx: rand(-.22, .22), vy: rand(-.14, .06), sw: rand(.12, .3),
+  x: rand(0, W), y: rand(0, H), r: rand(40, 110) * K,
+  vx: rand(-.22, .22) * K, vy: rand(-.14, .06) * K, sw: rand(.12, .3) * K,
   c: Math.random() < .14 ? [255, 46, 138] : Math.random() < .5 ? [120, 40, 210] : [70, 22, 140],
   a: rand(.16, .38), ph: rand(0, 6.28), sp: rand(900, 1800),
 }));
 // Chaque tache de brume est dessinée une seule fois dans un petit sprite, puis simplement recopiée : bien plus léger
 function sprite(rgb) {
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d'); const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
   g.addColorStop(0, `rgba(${rgb},1)`); g.addColorStop(1, `rgba(${rgb},0)`);
-  x.fillStyle = g; x.fillRect(0, 0, 128, 128); return c;
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); return c;
 }
 const SPR = new Map();
 const spr = (rgb) => { const k = String(rgb); if (!SPR.has(k)) SPR.set(k, sprite(rgb)); return SPR.get(k); };
 const WISP = sprite([200, 150, 255]);
 const curls = Array.from({ length: 24 }, () => ({
-  x: rand(0, W), y: rand(0, H), r: rand(14, 38),
-  vx: rand(-.15, .15), vy: rand(-.5, -.18), a: rand(.09, .2), ph: rand(0, 6.28),
+  x: rand(0, W), y: rand(0, H), r: rand(14, 38) * K,
+  vx: rand(-.15, .15) * K, vy: rand(-.5, -.18) * K, a: rand(.09, .2), ph: rand(0, 6.28),
 }));
 
 // Perce les fenêtres ; `soft` > 0 laisse un léger fondu sur le bord (rectangles concentriques semi-transparents)
@@ -329,7 +334,7 @@ function holes(ctx, soft) {
     ctx.globalAlpha = i === steps - 1 ? 1 : .35;
     for (const w of WINDOWS) {
       ctx.beginPath();
-      ctx.roundRect(w.x / SCALE + inset, w.y / SCALE + inset, w.w / SCALE - 2 * inset, w.h / SCALE - 2 * inset, 7);
+      ctx.roundRect(w.x / SCALE + inset, w.y / SCALE + inset, w.w / SCALE - 2 * inset, w.h / SCALE - 2 * inset, 28 / SCALE);
       ctx.fill();
     }
   }
@@ -351,14 +356,12 @@ function drawFog(t, dt) {
     fog.drawImage(spr(b.c), b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
   }
   fog.globalAlpha = 1;
-  holes(fog, 0); // bords nets : la cam et le jeu restent lisibles
 }
 
 function drawWisps(t, dt) {
-  wisps.clearRect(0, 0, W, H);
   wisps.globalCompositeOperation = 'lighter';
   for (const c of curls) {
-    c.x += (c.vx + Math.sin(t / 1300 + c.ph) * .3) * dt; // volutes qui montent en ondulant
+    c.x += (c.vx + Math.sin(t / 1300 + c.ph) * .3 * K) * dt; // volutes qui montent en ondulant
     c.y += c.vy * dt;
     if (c.y < -c.r) { c.y = H + c.r; c.x = rand(0, W); }
     if (c.x < -c.r) c.x = W + c.r; if (c.x > W + c.r) c.x = -c.r;
@@ -366,8 +369,8 @@ function drawWisps(t, dt) {
     wisps.drawImage(WISP, c.x - c.r, c.y - c.r, c.r * 2, c.r * 2);
   }
   wisps.globalAlpha = 1;
-  // Les volutes ne recouvrent que légèrement le bord des fenêtres (effet « fumée qui s'échappe »)
-  holes(wisps, 4);
+  // Bords nets : la cam et le jeu restent lisibles
+  holes(fog, 0);
 }
 
 let last = 0;
@@ -377,7 +380,8 @@ function step(t) {
   last = t;
   drawFog(t, dt); drawWisps(t, dt);
 }
-function frame() { step(performance.now()); requestAnimationFrame(frame); }
+// 30 images/s régulières : une image sur deux à 60 Hz, largement assez pour une brume lente et deux fois moins de travail
+function frame(t) { if (t - last >= 29) step(t); requestAnimationFrame(frame); }
 requestAnimationFrame(frame);
 // Secours : si le logiciel de live met la page en veille (requestAnimationFrame suspendu
 // quand la fenêtre est cachée par le jeu), un minuteur prend le relais pour que la brume continue.
